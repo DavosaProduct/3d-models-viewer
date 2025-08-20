@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Model Viewer</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <!-- Three.js - 用于3D模型渲染 -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/loaders/GLTFLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
+    
+    <!-- 配置Tailwind自定义主题 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#165DFF',
+                        secondary: '#36CFC9',
+                        dark: '#1D2129',
+                        light: '#F2F3F5'
+                    },
+                    fontFamily: {
+                        inter: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <!-- 自定义工具类 -->
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .model-card-hover {
+                @apply transition-all duration-300 hover:shadow-lg hover:-translate-y-1;
+            }
+            .loader-spin {
+                animation: spin 1.5s linear infinite;
+            }
+            @keyframes spin {
+                0% { transform: rotate(0deg); }
+                100% { transform: rotate(360deg); }
+            }
+            .fade-in {
+                animation: fadeIn 0.5s ease-in-out;
+            }
+            @keyframes fadeIn {
+                from { opacity: 0; }
+                to { opacity: 1; }
+            }
+        }
+    </style>
+</head>
+<body class="font-inter bg-gray-50 text-dark min-h-screen flex flex-col">
+    <!-- 导航栏 -->
+    <header class="bg-white shadow-sm sticky top-0 z-50 transition-all duration-300" id="navbar">
+        <div class="container mx-auto px-4 py-4 flex justify-between items-center">
+            <div class="flex items-center space-x-2">
+                <i class="fa fa-cube text-primary text-2xl"></i>
+                <h1 class="text-xl font-bold text-primary">3D Model Viewer</h1>
+            </div>
+            <nav class="hidden md:flex space-x-6">
+                <a href="#" class="font-medium hover:text-primary transition-colors">Home</a>
+                <a href="#models" class="font-medium hover:text-primary transition-colors">Models</a>
+                <a href="#about" class="font-medium hover:text-primary transition-colors">About</a>
+            </nav>
+            <button class="md:hidden text-dark text-xl" id="menuToggle">
+                <i class="fa fa-bars"></i>
+            </button>
+        </div>
+        <!-- 移动端菜单 -->
+        <div class="md:hidden hidden bg-white w-full border-t" id="mobileMenu">
+            <div class="container mx-auto px-4 py-3 flex flex-col space-y-3">
+                <a href="#" class="py-2 hover:text-primary transition-colors">Home</a>
+                <a href="#models" class="py-2 hover:text-primary transition-colors">Models</a>
+                <a href="#about" class="py-2 hover:text-primary transition-colors">About</a>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主内容区 -->
+    <main class="flex-grow">
+        <!-- 英雄区域 -->
+        <section class="bg-gradient-to-br from-primary/90 to-primary text-white py-16 md:py-24">
+            <div class="container mx-auto px-4 text-center">
+                <h2 class="text-[clamp(2rem,5vw,3.5rem)] font-bold mb-4 leading-tight">3D Model Showcase</h2>
+                <p class="text-[clamp(1rem,2vw,1.25rem)] max-w-2xl mx-auto mb-8 text-white/90">
+                    Explore our collection of 3D models with interactive 3D viewing capabilities
+                </p>
+                <a href="#viewer" class="inline-block bg-white text-primary font-medium px-6 py-3 rounded-lg shadow-lg hover:shadow-xl transition-all transform hover:-translate-y-1">
+                    Start Exploring <i class="fa fa-arrow-right ml-2"></i>
+                </a>
+            </div>
+        </section>
+
+        <!-- 模型查看器区域 -->
+        <section id="viewer" class="py-12 md:py-20 bg-light">
+            <div class="container mx-auto px-4">
+                <div class="text-center mb-10">
+                    <h2 class="text-[clamp(1.5rem,3vw,2.5rem)] font-bold mb-3">Interactive Model Viewer</h2>
+                    <p class="text-gray-600 max-w-2xl mx-auto">Click on a model to load it. Use mouse to rotate, zoom and pan.</p>
+                </div>
+                
+                <!-- 模型加载状态和错误提示 -->
+                <div id="modelStatus" class="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 bg-dark/80 text-white px-8 py-6 rounded-lg z-40 hidden flex-col items-center">
+                    <div id="loadingIndicator" class="loader-spin text-4xl mb-4">
+                        <i class="fa fa-circle-o-notch"></i>
+                    </div>
+                    <p id="statusMessage" class="text-center">Loading model...</p>
+                    <div id="progressContainer" class="w-full bg-gray-700 rounded-full h-2.5 mt-4 hidden">
+                        <div id="progressBar" class="bg-primary h-2.5 rounded-full" style="width: 0%"></div>
+                    </div>
+                </div>
+                
+                <!-- 3D渲染容器 -->
+                <div class="relative bg-white rounded-xl shadow-lg overflow-hidden aspect-video md:aspect-[16/9] mb-8">
+                    <div id="modelContainer" class="w-full h-full"></div>
+                    <!-- 首次加载提示 -->
+                    <div id="initialPrompt" class="absolute inset-0 bg-dark/50 flex flex-col items-center justify-center text-white z-30">
+                        <i class="fa fa-hand-pointer-o text-4xl mb-4"></i>
+                        <p class="text-xl font-medium">Select a model to load</p>
+                    </div>
+                </div>
+                
+                <!-- 模型选择器 -->
+                <div id="models" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div class="model-card bg-white rounded-lg shadow p-6 cursor-pointer model-card-hover border-2 border-transparent hover:border-primary" data-model="model1.glb">
+                        <div class="aspect-square bg-gray-100 rounded-lg mb-4 flex items-center justify-center overflow-hidden">
+                            <i class="fa fa-cube text-5xl text-primary/70"></i>
+                        </div>
+                        <h3 class="text-xl font-semibold mb-2">Model 1</h3>
+                        <p class="text-gray-600 mb-4">Interactive 3D model with high-detail textures</p>
+                        <div class="flex items-center text-sm text-gray-500">
+                            <i class="fa fa-file-text-o mr-2"></i>
+                            <span>model1.glb (81MB)</span>
+                        </div>
+                    </div>
+                    
+                    <div class="model-card bg-white rounded-lg shadow p-6 cursor-pointer model-card-hover border-2 border-transparent hover:border-primary" data-model="model2.glb">
+                        <div class="aspect-square bg-gray-100 rounded-lg mb-4 flex items-center justify-center overflow-hidden">
+                            <i class="fa fa-cubes text-5xl text-primary/70"></i>
+                        </div>
+                        <h3 class="text-xl font-semibold mb-2">Model 2</h3>
+                        <p class="text-gray-600 mb-4">Complex 3D structure with multiple components</p>
+                        <div class="flex items-center text-sm text-gray-500">
+                            <i class="fa fa-file-text-o mr-2"></i>
+                            <span>model2.glb (81MB)</span>
+                        </div>
+                    </div>
+                    
+                    <div class="model-card bg-white rounded-lg shadow p-6 cursor-pointer model-card-hover border-2 border-transparent hover:border-primary" data-model="model3.glb">
+                        <div class="aspect-square bg-gray-100 rounded-lg mb-4 flex items-center justify-center overflow-hidden">
+                            <i class="fa fa-object-group text-5xl text-primary/70"></i>
+                        </div>
+                        <h3 class="text-xl font-semibold mb-2">Model 3</h3>
+                        <p class="text-gray-600 mb-4">High-poly 3D model with detailed surfaces</p>
+                        <div class="flex items-center text-sm text-gray-500">
+                            <i class="fa fa-file-text-o mr-2"></i>
+                            <span>model3.glb (81MB)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+        
+        <!-- 模型控制说明 -->
+        <section id="about" class="py-16 bg-white">
+            <div class="container mx-auto px-4">
+                <div class="max-w-3xl mx-auto">
+                    <h2 class="text-[clamp(1.5rem,3vw,2.5rem)] font-bold mb-8 text-center">How to Use</h2>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+                        <div class="text-center p-6 bg-light rounded-lg">
+                            <div class="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <i class="fa fa-mouse-pointer text-2xl text-primary"></i>
+                            </div>
+                            <h3 class="text-lg font-semibold mb-2">Rotate</h3>
+                            <p class="text-gray-600">Click and drag with the left mouse button to rotate the model</p>
+                        </div>
+                        
+                        <div class="text-center p-6 bg-light rounded-lg">
+                            <div class="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <i class="fa fa-search-plus text-2xl text-primary"></i>
+                            </div>
+                            <h3 class="text-lg font-semibold mb-2">Zoom</h3>
+                            <p class="text-gray-600">Use mouse wheel or pinch to zoom in and out</p>
+                        </div>
+                        
+                        <div class="text-center p-6 bg-light rounded-lg">
+                            <div class="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <i class="fa fa-arrows text-2xl text-primary"></i>
+                            </div>
+                            <h3 class="text-lg font-semibold mb-2">Pan</h3>
+                            <p class="text-gray-600">Hold right mouse button and drag to pan the view</p>
+                        </div>
+                    </div>
+                    
+                    <div class="mt-12 p-6 bg-primary/5 rounded-lg border border-primary/20">
+                        <h3 class="text-xl font-semibold mb-3 flex items-center">
+                            <i class="fa fa-info-circle text-primary mr-2"></i>
+                            About the Models
+                        </h3>
+                        <p class="text-gray-700">
+                            These 3D models are stored as GLB files, which is a binary format for 3D models 
+                            that combines all assets into a single file. Each model is approximately 81MB in size,
+                            so please be patient while loading, especially on slower connections.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- 页脚 -->
+    <footer class="bg-dark text-white py-10">
+        <div class="container mx-auto px-4">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <div class="mb-6 md:mb-0">
+                    <div class="flex items-center space-x-2 mb-2">
+                        <i class="fa fa-cube text-primary text-xl"></i>
+                        <span class="font-bold text-lg">3D Model Viewer</span>
+                    </div>
+                    <p class="text-gray-400 text-sm">Interactive 3D model showcase for GitHub Pages</p>
+                </div>
+                
+                <div class="flex space-x-6">
+                    <a href="#" class="text-gray-400 hover:text-white transition-colors">
+                        <i class="fa fa-github text-xl"></i>
+                    </a>
+                    <a href="#" class="text-gray-400 hover:text-white transition-colors">
+                        <i class="fa fa-twitter text-xl"></i>
+                    </a>
+                    <a href="#" class="text-gray-400 hover:text-white transition-colors">
+                        <i class="fa fa-linkedin text-xl"></i>
+                    </a>
+                </div>
+            </div>
+            
+            <div class="border-t border-gray-800 mt-8 pt-8 text-center text-gray-500 text-sm">
+                &copy; 2023 3D Model Viewer. Hosted on GitHub Pages.
+            </div>
+        </div>
+    </footer>
+
+    <!-- JavaScript -->
+    <script>
+        // 移动菜单切换
+        const menuToggle = document.getElementById('menuToggle');
+        const mobileMenu = document.getElementById('mobileMenu');
+        
+        menuToggle.addEventListener('click', () => {
+            mobileMenu.classList.toggle('hidden');
+        });
+        
+        // 导航栏滚动效果
+        const navbar = document.getElementById('navbar');
+        window.addEventListener('scroll', () => {
+            if (window.scrollY > 50) {
+                navbar.classList.add('py-2', 'shadow');
+                navbar.classList.remove('py-4');
+            } else {
+                navbar.classList.add('py-4');
+                navbar.classList.remove('py-2', 'shadow');
+            }
+        });
+        
+        // 平滑滚动
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                
+                // 关闭移动菜单（如果打开）
+                if (!mobileMenu.classList.contains('hidden')) {
+                    mobileMenu.classList.add('hidden');
+                }
+                
+                document.querySelector(this.getAttribute('href')).scrollIntoView({
+                    behavior: 'smooth'
+                });
+            });
+        });
+        
+        // Three.js 3D模型查看器
+        let scene, camera, renderer, controls;
+        let currentModel = null;
+        const modelContainer = document.getElementById('modelContainer');
+        const modelStatus = document.getElementById('modelStatus');
+        const statusMessage = document.getElementById('statusMessage');
+        const progressContainer = document.getElementById('progressContainer');
+        const progressBar = document.getElementById('progressBar');
+        const initialPrompt = document.getElementById('initialPrompt');
+        
+        // 初始化Three.js场景
+        function initThreeJS() {
+            // 创建场景
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0xf0f0f0);
+            
+            // 添加环境光
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
+            scene.add(ambientLight);
+            
+            // 添加方向光
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(1, 1, 1);
+            scene.add(directionalLight);
+            
+            // 创建相机
+            camera = new THREE.PerspectiveCamera(
+                75, 
+                modelContainer.clientWidth / modelContainer.clientHeight, 
+                0.1, 
+                1000
+            );
+            camera.position.z = 5;
+            
+            // 创建渲染器
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(modelContainer.clientWidth, modelContainer.clientHeight);
+            modelContainer.appendChild(renderer.domElement);
+            
+            // 添加轨道控制器
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.1;
+            controls.rotateSpeed = 0.5;
+            controls.zoomSpeed = 0.7;
+            
+            // 窗口大小调整事件
+            window.addEventListener('resize', onWindowResize);
+            
+            // 动画循环
+            function animate() {
+                requestAnimationFrame(animate);
+                controls.update();
+                renderer.render(scene, camera);
+            }
+            animate();
+        }
+        
+        // 窗口大小调整处理
+        function onWindowResize() {
+            const width = modelContainer.clientWidth;
+            const height = modelContainer.clientHeight;
+            
+            camera.aspect = width / height;
+            camera.updateProjectionMatrix();
+            
+            renderer.setSize(width, height);
+        }
+        
+        // 加载模型
+        function loadModel(modelPath) {
+            // 如果已有模型，先移除
+            if (currentModel) {
+                scene.remove(currentModel);
+                currentModel = null;
+            }
+            
+            // 显示加载状态
+            modelStatus.classList.remove('hidden');
+            statusMessage.textContent = `Loading ${modelPath}...`;
+            progressContainer.classList.remove('hidden');
+            progressBar.style.width = '0%';
+            
+            // 隐藏初始提示
+            initialPrompt.classList.add('hidden');
+            
+            // 创建GLTF加载器
+            const loader = new THREE.GLTFLoader();
+            
+            // 加载模型
+            loader.load(
+                modelPath,
+                (gltf) => {
+                    // 模型加载完成
+                    currentModel = gltf.scene;
+                    
+                    // 计算模型大小并居中
+                    const box = new THREE.Box3().setFromObject(currentModel);
+                    const center = box.getCenter(new THREE.Vector3());
+                    const size = box.getSize(new THREE.Vector3());
+                    
+                    // 调整模型位置使其居中
+                    currentModel.position.sub(center);
+                    
+                    // 计算合适的相机距离
+                    const maxDim = Math.max(size.x, size.y, size.z);
+                    const fov = camera.fov * (Math.PI / 180);
+                    let cameraZ = Math.abs(maxDim / 2 / Math.tan(fov / 2));
+                    cameraZ *= 1.5; // 增加一点距离
+                    camera.position.z = cameraZ;
+                    
+                    // 将模型添加到场景
+                    scene.add(currentModel);
+                    
+                    // 隐藏加载状态
+                    modelStatus.classList.add('hidden');
+                    progressContainer.classList.add('hidden');
+                },
+                (xhr) => {
+                    // 加载进度
+                    const percent = (xhr.loaded / xhr.total) * 100;
+                    progressBar.style.width = `${percent}%`;
+                    statusMessage.textContent = `Loading ${modelPath}... ${Math.round(percent)}%`;
+                },
+                (error) => {
+                    // 加载错误
+                    console.error('Error loading model:', error);
+                    statusMessage.textContent = `Error loading model. Please try again.`;
+                    progressContainer.classList.add('hidden');
+                    
+                    // 5秒后隐藏错误信息
+                    setTimeout(() => {
+                        modelStatus.classList.add('hidden');
+                    }, 5000);
+                }
+            );
+        }
+        
+        // 模型卡片点击事件
+        document.querySelectorAll('.model-card').forEach(card => {
+            card.addEventListener('click', () => {
+                const modelPath = card.getAttribute('data-model');
+                loadModel(modelPath);
+                
+                // 高亮选中的模型卡片
+                document.querySelectorAll('.model-card').forEach(c => {
+                    c.classList.remove('border-primary');
+                    c.classList.add('border-transparent');
+                });
+                card.classList.remove('border-transparent');
+                card.classList.add('border-primary');
+            });
+        });
+        
+        // 初始化Three.js
+        window.addEventListener('load', initThreeJS);
+    </script>
+</body>
+</html>
